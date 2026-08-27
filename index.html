@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ETF 实时行情看板</title>
+<style>
+  :root {
+    --bg: #0B0E14;
+    --bg-card: #141923;
+    --bg-row: #181E2A;
+    --bg-row-alt: #1C2330;
+    --border: #252D3D;
+    --text: #E6EDF3;
+    --text-dim: #8B949E;
+    --text-mute: #6E7681;
+    --up: #F85149;
+    --down: #3FB950;
+    --gold: #D4AF37;
+    --gold-light: #F0D060;
+    --accent: #58A6FF;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  /* 顶部标题栏 */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header-left h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .header-left h1 span { color: var(--gold); }
+  .header-left .subtitle {
+    font-size: 12px;
+    color: var(--text-mute);
+    margin-top: 4px;
+    letter-spacing: 0.5px;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .refresh-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .refresh-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--down);
+    animation: pulse 2s infinite;
+  }
+  .refresh-dot.loading { background: var(--gold); animation: spin 1s linear infinite; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  .last-update {
+    font-size: 12px;
+    color: var(--text-mute);
+    font-variant-numeric: tabular-nums;
+  }
+  .btn-refresh {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-refresh:hover {
+    border-color: var(--gold);
+    color: var(--gold);
+  }
+
+  /* KPI 概览条 */
+  .kpi-bar {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .kpi-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+  }
+  .kpi-label {
+    font-size: 11px;
+    color: var(--text-mute);
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+  .kpi-value {
+    font-size: 20px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .kpi-sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  /* 主表格 */
+  .table-wrap {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+  }
+  thead th {
+    background: #1A2030;
+    padding: 12px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-align: right;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  thead th:first-child { text-align: left; }
+  thead th .col-hint {
+    display: block;
+    font-size: 10px;
+    color: var(--text-mute);
+    font-weight: 400;
+    margin-top: 2px;
+  }
+  thead th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s;
+  }
+  thead th.sortable:hover {
+    color: var(--gold);
+  }
+  thead th.sortable.active {
+    color: var(--gold);
+  }
+  thead th .sort-arrow {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 10px;
+    opacity: 0.4;
+    transition: opacity 0.15s;
+  }
+  thead th.sortable.active .sort-arrow {
+    opacity: 1;
+    color: var(--gold);
+  }
+  tbody td {
+    padding: 16px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    font-size: 15px;
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:nth-child(odd) { background: var(--bg-row); }
+  tbody tr:nth-child(even) { background: var(--bg-row-alt); }
+  tbody tr:hover { background: #1F2738; }
+  td.name-cell {
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .etf-code {
+    font-size: 13px;
+    color: var(--text-mute);
+    font-weight: 500;
+  }
+  .etf-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .etf-tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: rgba(88,166,255,0.12);
+    color: var(--accent);
+    margin-left: 6px;
+  }
+  .price {
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .change-pct {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+  .flat { color: var(--text-dim); }
+  .premium {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .bias-val {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .loading-cell {
+    color: var(--text-mute);
+    font-size: 13px;
+  }
+
+  /* 底部说明 */
+  .footer {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-mute);
+    line-height: 1.8;
+  }
+  .footer p { margin-bottom: 4px; }
+  .footer .formula {
+    background: var(--bg-card);
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin-top: 8px;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  /* 响应式 */
+  @media (max-width: 768px) {
+    body { padding: 12px; }
+    .kpi-bar { grid-template-columns: 1fr; }
+    .header { flex-direction: column; align-items: flex-start; gap: 12px; }
+    .table-wrap { overflow-x: auto; }
+    table { min-width: 700px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- 顶部标题 -->
+  <div class="header">
+    <div class="header-left">
+      <h1>ETF 实时行情<span>看板</span></h1>
+      <div class="subtitle">518880 黄金 · 513110 纳指 · 159985 豆粕 · 512890 红利低波 · 159869 游戏 · 159967 创成长 · 560860 有色 · 563300 央企红利</div>
+    </div>
+    <div class="header-right">
+      <div class="refresh-status">
+        <div class="refresh-dot" id="refreshDot"></div>
+        <span id="refreshText">实时监控中</span>
+      </div>
+      <div class="last-update" id="lastUpdate">--:--:--</div>
+      <button class="btn-refresh" onclick="refreshAll()">立即刷新</button>
+    </div>
+  </div>
+
+  <!-- KPI 概览 -->
+  <div class="kpi-bar" id="kpiBar">
+    <div class="kpi-card">
+      <div class="kpi-label">上涨家数</div>
+      <div class="kpi-value" id="kpiUp">--</div>
+      <div class="kpi-sub" id="kpiTotal">8 只 ETF 中</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">平均溢价率</div>
+      <div class="kpi-value" id="kpiPremium">--</div>
+      <div class="kpi-sub">IOPV 溢价率均值</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">刷新间隔</div>
+      <div class="kpi-value" style="color:var(--gold)">10s</div>
+      <div class="kpi-sub">自动刷新行情数据</div>
+    </div>
+  </div>
+
+  <!-- 主表格 -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ETF 名称</th>
+          <th>最新价</th>
+          <th class="sortable" data-sort="changePct" onclick="toggleSort('changePct')">今日涨跌幅<span class="sort-arrow" id="arrow-changePct">↕</span></th>
+          <th class="sortable" data-sort="iopvPremium" onclick="toggleSort('iopvPremium')">IOPV 溢价率<span class="col-hint">(最新价-IOPV)/IOPV</span><span class="sort-arrow" id="arrow-iopvPremium">↕</span></th>
+          <th class="sortable" data-sort="change20d" onclick="toggleSort('change20d')">20日涨跌幅<span class="col-hint">与20日前收盘比</span><span class="sort-arrow" id="arrow-change20d">↕</span></th>
+          <th class="sortable" data-sort="bias20" onclick="toggleSort('bias20')">20日 BIAS<span class="col-hint">(价-MA20)/MA20</span><span class="sort-arrow" id="arrow-bias20">↕</span></th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <!-- 动态生成 -->
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 底部说明 -->
+  <div class="footer">
+    <p><strong>数据来源：</strong>东方财富网公开行情接口（JSONP），实时行情每 10 秒自动刷新。</p>
+    <p><strong>口径说明：</strong></p>
+    <div class="formula">
+      IOPV溢价率 = (最新价 - 实时IOPV) / 实时IOPV × 100%<br>
+      20日涨跌幅 = (当日最新价 - 20个交易日前收盘价) / 20个交易日前收盘价 × 100%<br>
+      20日BIAS = (最新价 - 过去20个交易日复权收盘价均值) / 20日均值 × 100%
+    </div>
+    <p style="margin-top:8px;">注：历史数据采用前复权日线；非交易时段显示最近一个交易日数据；IOPV 数据缺失时显示「—」。</p>
+  </div>
+</div>
+
+<script>
+// ===== ETF 配置 =====
+const ETFS = [
+  { code: '518880', name: '黄金ETF', secid: '1.518880', exchange: 'sh', tag: '黄金' },
+  { code: '513110', name: '纳斯达克ETF', secid: '1.513110', exchange: 'sh', tag: '美股' },
+  { code: '159985', name: '豆粕ETF', secid: '0.159985', exchange: 'sz', tag: '商品' },
+  { code: '512890', name: '红利低波ETF', secid: '1.512890', exchange: 'sh', tag: '红利' },
+  { code: '159869', name: '游戏ETF', secid: '0.159869', exchange: 'sz', tag: '游戏' },
+  { code: '159967', name: '创成长ETF', secid: '0.159967', exchange: 'sz', tag: '创业板' },
+  { code: '560860', name: '有色金属ETF', secid: '1.560860', exchange: 'sh', tag: '有色' },
+  { code: '563300', name: '央企红利ETF', secid: '1.563300', exchange: 'sh', tag: '红利' }
+];
+
+// 数据缓存
+const cache = {};
+ETFS.forEach(e => cache[e.code] = { quote: null, kline: null, iopv: null });
+
+// 排序状态
+let sortState = { key: null, dir: 'desc' };
+const SORT_KEYS = ['changePct', 'iopvPremium', 'change20d', 'bias20'];
+
+function toggleSort(key) {
+  if (sortState.key === key) {
+    sortState.dir = sortState.dir === 'desc' ? 'asc' : 'desc';
+  } else {
+    sortState.key = key;
+    sortState.dir = 'desc';
+  }
+  // 更新箭头显示
+  SORT_KEYS.forEach(k => {
+    const arrow = document.getElementById('arrow-' + k);
+    const th = document.querySelector(`th[data-sort="${k}"]`);
+    if (arrow) {
+      if (sortState.key === k) {
+        arrow.textContent = sortState.dir === 'desc' ? '↓' : '↑';
+        th.classList.add('active');
+      } else {
+        arrow.textContent = '↕';
+        th.classList.remove('active');
+      }
+    }
+  });
+  renderTable();
+}
+
+// ===== JSONP 请求 =====
+function jsonp(url, timeout = 8000) {
+  return new Promise((resolve, reject) => {
+    const cbName = 'jsonp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    const script = document.createElement('script');
+    let timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('timeout'));
+    }, timeout);
+    function cleanup() {
+      clearTimeout(timer);
+      if (script.parentNode) script.parentNode.removeChild(script);
+      delete window[cbName];
+    }
+    window[cbName] = function(data) {
+      cleanup();
+      resolve(data);
+    };
+    script.src = url + (url.indexOf('?') > -1 ? '&' : '?') + 'cb=' + cbName;
+    script.onerror = () => { cleanup(); reject(new Error('network error')); };
+    document.body.appendChild(script);
+  });
+}
+
+// ===== 获取实时行情 =====
+async function fetchQuote(etf) {
+  const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${etf.secid}&fields=f43,f44,f45,f46,f47,f48,f50,f55,f57,f58,f60,f169,f170,f292&ut=fa5fd1943c7b386f172d6893dbfba10b`;
+  try {
+    const res = await jsonp(url);
+    if (res && res.data) {
+      const d = res.data;
+      // 价格字段通常 ×1000，涨跌幅 ×100
+      const price = d.f43 ? d.f43 / 1000 : null;
+      const prevClose = d.f60 ? d.f60 / 1000 : null;
+      const changePct = d.f170 != null ? d.f170 / 100 : null;
+      const changeAmt = d.f169 ? d.f169 / 1000 : null;
+      // f55 可能是 IOPV
+      const iopv = d.f55 ? d.f55 / 1000 : null;
+      cache[etf.code].quote = {
+        name: d.f58 || etf.name,
+        price, prevClose, changePct, changeAmt, iopv,
+        high: d.f44 ? d.f44 / 1000 : null,
+        low: d.f45 ? d.f45 / 1000 : null,
+        open: d.f46 ? d.f46 / 1000 : null,
+        volume: d.f47 || null,
+        amount: d.f48 || null
+      };
+      return cache[etf.code].quote;
+    }
+  } catch(e) {
+    console.warn('行情获取失败', etf.code, e.message);
+  }
+  return null;
+}
+
+// ===== 获取历史K线（前复权日线，最近25条） =====
+async function fetchKline(etf) {
+  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${etf.secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=25&ut=fa5fd1943c7b386f172d6893dbfba10b`;
+  try {
+    const res = await jsonp(url);
+    if (res && res.data && res.data.klines && res.data.klines.length > 0) {
+      // klines 格式: "日期,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率"
+      const klines = res.data.klines.map(line => {
+        const parts = line.split(',');
+        return {
+          date: parts[0],
+          open: parseFloat(parts[1]),
+          close: parseFloat(parts[2]),
+          high: parseFloat(parts[3]),
+          low: parseFloat(parts[4]),
+          volume: parseFloat(parts[5]),
+          amount: parseFloat(parts[6]),
+          changePct: parseFloat(parts[8])
+        };
+      });
+      // 东方财富返回按日期升序，最新的在最后。反转成最新在前。
+      klines.reverse();
+      cache[etf.code].kline = klines;
+      return klines;
+    }
+  } catch(e) {
+    console.warn('K线获取失败', etf.code, e.message);
+  }
+  return null;
+}
+
+// ===== 计算指标 =====
+function calcMetrics(etf) {
+  const q = cache[etf.code].quote;
+  const k = cache[etf.code].kline;
+  if (!q) return null;
+
+  const price = q.price;
+  const result = {
+    price,
+    changePct: q.changePct,
+    iopvPremium: null,
+    change20d: null,
+    bias20: null
+  };
+
+  // IOPV 溢价率
+  if (q.iopv && q.iopv > 0 && price) {
+    result.iopvPremium = ((price - q.iopv) / q.iopv) * 100;
+  }
+
+  // 20日涨跌幅 和 20日BIAS（需要K线数据）
+  if (k && k.length >= 21) {
+    // k[0] 是最新（今日），k[20] 是20个交易日前
+    const close20ago = k[20].close;
+    if (close20ago > 0 && price) {
+      result.change20d = ((price - close20ago) / close20ago) * 100;
+    }
+    // 20日MA：k[0]到k[19]的收盘价均值（含当日共20个交易日）
+    let sum = 0;
+    for (let i = 0; i < 20; i++) {
+      sum += k[i].close;
+    }
+    const ma20 = sum / 20;
+    if (ma20 > 0 && price) {
+      result.bias20 = ((price - ma20) / ma20) * 100;
+    }
+  }
+
+  return result;
+}
+
+// ===== 格式化 =====
+function fmtPrice(v) {
+  if (v == null) return '<span class="loading-cell">—</span>';
+  return v.toFixed(3);
+}
+function fmtPct(v) {
+  if (v == null || isNaN(v)) return '<span class="loading-cell">—</span>';
+  const cls = v > 0 ? 'up' : (v < 0 ? 'down' : 'flat');
+  const sign = v > 0 ? '+' : '';
+  return `<span class="${cls}">${sign}${v.toFixed(2)}%</span>`;
+}
+function fmtPremium(v) {
+  if (v == null || isNaN(v)) return '<span class="loading-cell">—</span>';
+  const cls = v > 0 ? 'up' : (v < 0 ? 'down' : 'flat');
+  const sign = v > 0 ? '+' : '';
+  return `<span class="premium ${cls}">${sign}${v.toFixed(3)}%</span>`;
+}
+
+// ===== 渲染表格 =====
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  let upCount = 0;
+  let premiumSum = 0;
+  let premiumCount = 0;
+  let html = '';
+
+  // 先计算所有ETF的指标
+  const rows = ETFS.map(etf => {
+    const m = calcMetrics(etf);
+    const q = cache[etf.code].quote;
+    const name = q ? q.name : etf.name;
+    if (m && m.changePct > 0) upCount++;
+    if (m && m.iopvPremium != null) { premiumSum += m.iopvPremium; premiumCount++; }
+    return { etf, metrics: m, name };
+  });
+
+  // 排序
+  if (sortState.key) {
+    rows.sort((a, b) => {
+      const va = a.metrics ? a.metrics[sortState.key] : null;
+      const vb = b.metrics ? b.metrics[sortState.key] : null;
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      return sortState.dir === 'desc' ? vb - va : va - vb;
+    });
+  }
+
+  rows.forEach(row => {
+    const { etf, metrics: m, name } = row;
+
+    html += `<tr>
+      <td class="name-cell">
+        <div>
+          <div class="etf-name">${name}<span class="etf-tag">${etf.tag}</span></div>
+          <div class="etf-code">${etf.code} · ${etf.exchange.toUpperCase()}</div>
+        </div>
+      </td>
+      <td><span class="price">${fmtPrice(m ? m.price : null)}</span></td>
+      <td><span class="change-pct">${fmtPct(m ? m.changePct : null)}</span></td>
+      <td>${fmtPremium(m ? m.iopvPremium : null)}</td>
+      <td>${fmtPct(m ? m.change20d : null)}</td>
+      <td>${fmtPct(m ? m.bias20 : null)}</td>
+    </tr>`;
+  });
+
+  tbody.innerHTML = html;
+
+  // 更新KPI
+  document.getElementById('kpiUp').textContent = `${upCount} / ${ETFS.length}`;
+  document.getElementById('kpiTotal').textContent = `${ETFS.length} 只 ETF 中`;
+  document.getElementById('kpiUp').className = 'kpi-value ' + (upCount >= ETFS.length/2 ? 'up' : (upCount === 0 ? 'down' : ''));
+  if (premiumCount > 0) {
+    const avg = premiumSum / premiumCount;
+    const el = document.getElementById('kpiPremium');
+    el.textContent = (avg > 0 ? '+' : '') + avg.toFixed(3) + '%';
+    el.className = 'kpi-value ' + (avg > 0 ? 'up' : (avg < 0 ? 'down' : ''));
+  }
+}
+
+// ===== 刷新全部 =====
+let isRefreshing = false;
+async function refreshAll() {
+  if (isRefreshing) return;
+  isRefreshing = true;
+  const dot = document.getElementById('refreshDot');
+  const text = document.getElementById('refreshText');
+  dot.classList.add('loading');
+  text.textContent = '刷新中...';
+
+  // 并行获取所有实时行情
+  const quotePromises = ETFS.map(e => fetchQuote(e));
+  // K线数据不需要每次都刷新，但当日收盘价会变，所以也刷新
+  const klinePromises = ETFS.map(e => fetchKline(e));
+
+  try {
+    await Promise.all([...quotePromises, ...klinePromises]);
+  } catch(e) {
+    console.error('刷新异常', e);
+  }
+
+  renderTable();
+
+  // 更新时间
+  const now = new Date();
+  document.getElementById('lastUpdate').textContent =
+    now.toLocaleTimeString('zh-CN', { hour12: false });
+
+  dot.classList.remove('loading');
+  text.textContent = '实时监控中';
+  isRefreshing = false;
+}
+
+// ===== 初始化 =====
+refreshAll();
+// 每10秒刷新实时行情（K线每60秒刷新一次以减少请求）
+setInterval(() => {
+  // 只刷新行情
+  ETFS.forEach(e => fetchQuote(e).then(() => renderTable()));
+  const now = new Date();
+  document.getElementById('lastUpdate').textContent = now.toLocaleTimeString('zh-CN', { hour12: false });
+}, 10000);
+// 每60秒刷新K线
+setInterval(() => {
+  ETFS.forEach(e => fetchKline(e));
+}, 60000);
+</script>
+</body>
+</html>
